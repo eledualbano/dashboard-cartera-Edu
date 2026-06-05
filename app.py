@@ -4,10 +4,15 @@ import plotly.express as px
 
 st.set_page_config(page_title="Dashboard de Inversiones", layout="wide")
 
-# --- CONFIGURACIÓN DE TU PLANILLA REAL ---
+# --- CONFIGURACIÓN DE TU PLANILLA REAL (TOTALMENTE DINÁMICA) ---
 SPREADSHEET_ID = "1-7fKak1B_R0_Udm83xrIwUzrwNPrQgHqcMflJlIhQA0"
-GID = "1816748277"
-CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID}&range=B192:D215"
+GID_PRINCIPAL = "1816748277"  # Pestaña "2026"
+# Leemos un rango amplio para que la planilla crezca libremente hacia abajo
+CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B192:D350"
+
+# --- GID DE TU PESTAÑA HISTORIAL ENLAZADO CORRECTAMENTE ---
+GID_HISTORIAL = 39842440 
+CSV_HISTORIAL_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
 ON_TICKERS = ["MR39D", "IRCPD", "TLCPD", "YM34D", "DNC5D", "DNC7D", "RUCAD", "RUCDD", "TLCTD"]
 CEDEAR_TICKERS = [
@@ -33,7 +38,7 @@ def limpiar_numero(valor):
     except ValueError:
         return 0.0
 
-@st.cache_data(ttl=60)  # Guarda en caché por 60 segundos para no saturar Google Sheets
+@st.cache_data(ttl=60)
 def cargar_datos_desde_sheets():
     try:
         df = pd.read_csv(CSV_URL, header=None, names=["TICKER", "VALOR_USD", "NOMINALES"], engine='python')
@@ -53,8 +58,10 @@ def cargar_datos_desde_sheets():
                 continue
                 
             ticker = str(ticker_raw).strip().upper()
-            if any(x in ticker for x in ["TOTAL", "APORTADO", "GENERAL", "ACTUAL", "TICKER", "TOTALES"]) or ticker == "":
-                continue
+            
+            # 🛑 Freno dinámico al llegar a la etiqueta de cierre de tu tabla
+            if "TOTAL GENERAL" in ticker or any(x in ticker for x in ["TOTAL", "APORTADO", "GENERAL", "ACTUAL", "TICKER", "TOTALES"]) or ticker == "":
+                break
                 
             valor_posicion_usd = limpiar_numero(valor_raw)
             if valor_posicion_usd <= 0:
@@ -86,8 +93,27 @@ def cargar_datos_desde_sheets():
         st.error(f"Error al conectar con Google Sheets: {e}")
         return None
 
-# --- CARGA DE DATOS EN VIVO ---
+@st.cache_data(ttl=60)
+def cargar_historial():
+    try:
+        df_hist = pd.read_csv(CSV_HISTORIAL_URL, engine='python')
+        df_hist.columns = [c.strip().upper() for c in df_hist.columns]
+        
+        col_fecha = [c for c in df_hist.columns if "FECHA" in c][0]
+        col_total = [c for c in df_hist.columns if "TOTAL" in c][0]
+        
+        df_hist = df_hist[[col_fecha, col_total]].dropna()
+        df_hist[col_total] = df_hist[col_total].apply(limpiar_numero)
+        df_hist[col_fecha] = pd.to_datetime(df_hist[col_fecha], errors='coerce')
+        df_hist = df_hist.dropna().sort_values(by=col_fecha)
+        
+        return df_hist, col_fecha, col_total
+    except Exception as e:
+        return None, None, None
+
+# --- CARGA DE DATOS ---
 portfolio = cargar_datos_desde_sheets()
+df_historial, col_f, col_t = cargar_historial()
 
 st.title("💼 Mi Cartera de Inversiones Automatizada")
 st.caption("Datos sincronizados en tiempo real desde tu Google Sheets")
@@ -162,6 +188,28 @@ if portfolio:
                 fig_bar.update_layout(yaxis=dict(ticksuffix="%"), margin=dict(t=30, b=20, l=20, r=20))
                 st.plotly_chart(fig_bar, use_container_width=True)
 
+            # 📉 --- GRÁFICO DE EVOLUCIÓN HISTÓRICA ---
+            if df_historial is not None and not df_historial.empty:
+                st.markdown("---")
+                st.subheader("📈 Evolución Histórica de la Cartera")
+                fig_evolucion = px.line(
+                    df_historial, 
+                    x=col_f, 
+                    y=col_t, 
+                    markers=True,
+                    color_discrete_sequence=["#10b981"]
+                )
+                fig_evolucion.update_layout(
+                    xaxis_title="Fecha",
+                    yaxis_title="Monto Cartera (USD)",
+                    hovermode="x unified",
+                    template="plotly_dark"
+                )
+                st.plotly_chart(fig_evolucion, use_container_width=True)
+            else:
+                st.markdown("---")
+                st.info("📈 Cuando la pestaña de Historial empiece a acumular registros diarios (corriendo las macros o agregando filas manuales con fecha y total), acá verás el gráfico de evolución.")
+
             st.markdown("---")
             st.subheader("📌 Desglose Detallado por Activo")
             
@@ -173,7 +221,7 @@ if portfolio:
                     sub_label = f"{activo['Ticker']} (Cotización Implícita: USD {precio:,.2f}) — {activo['% del Total']}% del total" if precio > 0 else f"{activo['Ticker']} — {activo['% del Total']}% del total"
                     st.metric(label=sub_label, value=f"USD {activo['Valor USD']:,.2f}")
 
-    # ==================== PESTAÑA 2: ANALISIS DE OBLIGACIONES NEGOCIABLES ====================
+    # ==================== PESTAÑA 2: ONs ====================
     with tab_ons:
         st.subheader("📜 Concentración Interna de Obligaciones Negociables")
         if not datos_ons:
@@ -191,7 +239,7 @@ if portfolio:
                 fig_pie_ons = px.pie(df_ons, values="Valor USD", names="Ticker", hole=0.3, color_discrete_sequence=px.colors.sequential.Blues_r)
                 st.plotly_chart(fig_pie_ons, use_container_width=True)
 
-    # ==================== PESTAÑA 3: ANALISIS DE CEDEARS ====================
+    # ==================== PESTAÑA 3: CEDEARS ====================
     with tab_cedears:
         st.subheader("🍎 Concentración Interna de CEDEARs")
         if not datos_cedears:
