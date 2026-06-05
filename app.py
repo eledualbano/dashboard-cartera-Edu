@@ -4,28 +4,29 @@ import plotly.express as px
 
 st.set_page_config(page_title="Dashboard de Inversiones", layout="wide")
 
-# --- CONFIGURACIÓN DE TU PLANILLA REAL (TOTALMENTE DINÁMICA) ---
+# --- CONFIGURACIÓN DE TU PLANILLA REAL ---
 SPREADSHEET_ID = "1-7fKak1B_R0_Udm83xrIwUzrwNPrQgHqcMflJlIhQA0"
 GID_PRINCIPAL = "1816748277"  # Pestaña "2026"
 
-# 🔍 LEEMOS DESDE LA FILA 1: Abarcamos toda la hoja para no perder ningún activo de arriba
+# Leemos las columnas B, C y D desde la fila 1
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B1:D350"
 
 # --- GID DE TU PESTAÑA HISTORIAL ---
 GID_HISTORIAL = 39842440 
 CSV_HISTORIAL_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
+# LISTA OFICIAL DE TUS ACTIVOS REALES
 ON_TICKERS = ["MR39D", "IRCPD", "TLCPD", "YM34D", "DNC5D", "DNC7D", "RUCAD", "RUCDD", "TLCTD"]
 CEDEAR_TICKERS = [
     "VIST", "MSFT", "WMT", "GOLD", "PBR", "SPY ETF", "NU", "META", 
-    "GOOGL", "MELI", "NVDA", "BRKB", "PFE", "JNJ", "B"
+    "GOOGL", "MELI", "NVDA", "BRKB", "PFE", "JNJ", "B", "PAMP", "AL30"
 ]
 
 def limpiar_numero(valor):
     if pd.isna(valor):
         return 0.0
     val_str = str(valor).strip().replace("$", "").replace(" ", "").replace("U$S", "")
-    if val_str == "-" or not val_str:
+    if val_str == "-" or not val_str or val_str.lower() == "nan":
         return 0.0
     try:
         if "," in val_str and "." in val_str:
@@ -39,52 +40,52 @@ def limpiar_numero(valor):
     except ValueError:
         return 0.0
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def cargar_datos_desde_sheets():
     try:
-        # Forzamos header=None porque leemos desde la fila 1 y no queremos usar textos de arriba como títulos
-        df = pd.read_csv(CSV_URL, header=None, names=["TICKER", "VALOR_USD", "NOMINALES"], engine='python')
+        # B=TICKER, C=VALOR_TOTAL_USD, D=NOMINALES
+        df = pd.read_csv(CSV_URL, header=None, names=["TICKER", "VALOR_TOTAL_USD", "NOMINALES"], engine='python')
         
         portfolio = {
             "total_usd": 0.0,
-            "instrumentos": {"Obligaciones Negociables": 0.0, "CEDEARs": 0.0, "Merval": 0.0},
+            "instrumentos": {"Obligaciones Negociables": 0.0, "CEDEARs": 0.0},
             "activos": {}
         }
 
         for _, row in df.iterrows():
             ticker_raw = row["TICKER"]
-            valor_raw = row["VALOR_USD"]
+            valor_raw = row["VALOR_TOTAL_USD"]
             nominales_raw = row["NOMINALES"]
             
-            # Si la celda está vacía o no es texto válido, saltamos de fila
             if pd.isna(ticker_raw):
                 continue
                 
             ticker = str(ticker_raw).strip().upper()
             
-            # 🛑 FRENO DINÁMICO: Al llegar al "TOTAL GENERAL" dejamos de leer filas hacia abajo
-            if "TOTAL GENERAL" in ticker or "TOTAL APORTADO" in ticker:
+            # Freno de seguridad por si lee de más
+            if ticker == "TOTAL GENERAL":
                 break
-                
+
+            # FILTRO ESTRICTO: Solo procesamos si es un ticker de tus listas oficiales
+            es_on = ticker in ON_TICKERS
+            es_cedear = ticker in CEDEAR_TICKERS
+            
+            if not (es_on or es_cedear):
+                continue
+
             valor_posicion_usd = limpiar_numero(valor_raw)
             nominales = limpiar_numero(nominales_raw)
             
-            # 🧠 FILTRO INTELIGENTE: Si tiene texto (ej: "Ticker", "Cant") pero los números dan 0,
-            # significa que es un título de arriba o una fila vacía de la planilla. La ignoramos.
-            if valor_posicion_usd <= 0 or nominales <= 0:
+            if valor_posicion_usd <= 0:
                 continue
 
-            if ticker in ON_TICKERS:
-                tipo = "Obligaciones Negociables"
-            elif ticker in CEDEAR_TICKERS:
-                tipo = "CEDEARs"
-            else:
-                tipo = "Merval"
-
-            precio_ref = valor_posicion_usd / nominales
+            tipo = "Obligaciones Negociables" if es_on else "CEDEARs"
+            
+            # Calculamos el precio unitario implícito real (Monto / Cantidad) para mostrártelo
+            precio_unitario = (valor_posicion_usd / nominales) if nominales > 0 else 0.0
 
             portfolio["activos"][ticker] = {
-                "precio_unitario": round(precio_ref, 2),
+                "precio_unitario": round(precio_unitario, 2),
                 "total_posicion_usd": round(valor_posicion_usd, 2)
             }
             portfolio["instrumentos"][tipo] += valor_posicion_usd
@@ -99,7 +100,7 @@ def cargar_datos_desde_sheets():
         st.error(f"Error al conectar con Google Sheets: {e}")
         return None
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def cargar_historial():
     try:
         df_hist = pd.read_csv(CSV_HISTORIAL_URL, engine='python')
@@ -114,9 +115,7 @@ def cargar_historial():
         df_hist = df_hist[[col_fecha, col_total]].dropna()
         df_hist[col_total] = df_hist[col_total].apply(limpiar_numero)
         
-        # 📅 INDICA DÍA PRIMERO (dd/mm/yyyy) para que lea bien el historial guardado por la macro
         df_hist[col_fecha] = pd.to_datetime(df_hist[col_fecha], dayfirst=True, errors='coerce')
-        
         df_hist = df_hist.dropna().sort_values(by=col_fecha)
         return df_hist, col_fecha, col_total
     except Exception as e:
@@ -164,7 +163,7 @@ if portfolio:
     # ==================== PESTAÑA 1: RESUMEN GENERAL ====================
     with tab_gral:
         if not portfolio["activos"]:
-            st.info("Aún no tienes activos registrados en el rango mapeado de la planilla.")
+            st.info("Aún no tienes activos registrados con valores válidos.")
         else:
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -187,7 +186,7 @@ if portfolio:
                 df_inst = pd.DataFrame(list(portfolio["instrumentos"].items()), columns=["Instrumento", "Valor USD"])
                 df_inst = df_inst[df_inst["Valor USD"] > 0]
                 fig_pie = px.pie(df_inst, values="Valor USD", names="Instrumento", 
-                                 color_discrete_sequence=["#3b82f6", "#10b981", "#8b5cf6"], hole=0.4)
+                                 color_discrete_sequence=["#3b82f6", "#ef4444"], hole=0.4)
                 fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -199,7 +198,7 @@ if portfolio:
                 fig_bar.update_layout(yaxis=dict(ticksuffix="%"), margin=dict(t=30, b=20, l=20, r=20))
                 st.plotly_chart(fig_bar, use_container_width=True)
 
-            # 📉 --- GRÁFICO DE EVOLUCIÓN HISTÓRICA ---
+            # --- GRÁFICO DE EVOLUCIÓN HISTÓRICA ---
             if df_historial is not None and not df_historial.empty:
                 st.markdown("---")
                 st.subheader("📈 Evolución Histórica de la Cartera")
@@ -218,9 +217,6 @@ if portfolio:
                 )
                 fig_evolucion.update_xaxes(tickformat="%d/%m/%Y")
                 st.plotly_chart(fig_evolucion, use_container_width=True)
-            else:
-                st.markdown("---")
-                st.info("📈 Cuando la pestaña de Historial empiece a acumular registros diarios running la macro, acá se dibujará tu gráfico de evolución.")
 
             st.markdown("---")
             st.subheader("📌 Desglose Detallado por Activo")
@@ -230,14 +226,14 @@ if portfolio:
             for i, activo in enumerate(activos_ordenados):
                 with cols_activos[i % 3]:
                     precio = activo["Precio Ref"]
-                    sub_label = f"{activo['Ticker']} (Cotización Implícita: USD {precio:,.2f}) — {activo['% del Total']}% del total" if precio > 0 else f"{activo['Ticker']} — {activo['% del Total']}% del total"
+                    sub_label = f"{activo['Ticker']} (Cotización: USD {precio:,.2f}) — {activo['% del Total']}% del total"
                     st.metric(label=sub_label, value=f"USD {activo['Valor USD']:,.2f}")
 
     # ==================== PESTAÑA 2: ONs ====================
     with tab_ons:
         st.subheader("📜 Concentración Interna de Obligaciones Negociables")
         if not datos_ons:
-            st.info("No posees Obligaciones Negociables en el rango leído.")
+            st.info("No posees Obligaciones Negociables.")
         else:
             df_ons = pd.DataFrame(datos_ons)
             total_ons = df_ons["Valor USD"].sum()
@@ -255,7 +251,7 @@ if portfolio:
     with tab_cedears:
         st.subheader("🍎 Concentración Interna de CEDEARs")
         if not datos_cedears:
-            st.info("No posees CEDEARs en el rango leído.")
+            st.info("No posees CEDEARs.")
         else:
             df_cedears = pd.DataFrame(datos_cedears)
             total_cedears = df_cedears["Valor USD"].sum()
