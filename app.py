@@ -18,7 +18,7 @@ CSV_HISTORIAL_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/ex
 # Tickers oficiales para la separación de pestañas
 ON_TICKERS = ["YM34D", "RUCDD", "DNC5D", "DNC7D", "TLCPD", "IRCPD", "TLCTD", "MR39D", "RUCAD"]
 CEDEAR_TICKERS = [
-    "MELI", "B", "PBR", "JNJ", "WMT", "PAMP", "PFE", "SPY ETF", 
+    "MELI", "B", "PBR", "JNJ", "WMT", "PAMP", "PFE", "SPY", 
     "BRKB", "META", "GOOGL", "MSFT", "NU", "NVDA", "VIST", "GOLD"
 ]
 
