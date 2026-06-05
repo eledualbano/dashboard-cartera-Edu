@@ -8,8 +8,8 @@ st.set_page_config(page_title="Dashboard de Inversiones", layout="wide")
 SPREADSHEET_ID = "1-7fKak1B_R0_Udm83xrIwUzrwNPrQgHqcMflJlIhQA0"
 GID_PRINCIPAL = "1816748277"  # Pestaña "2026"
 
-# Leemos un rango amplio. Al no fijar el final, tu planilla puede crecer libremente.
-CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B192:D350"
+# 🔍 LEEMOS DESDE LA FILA 1: Abarcamos toda la hoja para no perder ningún activo de arriba
+CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B1:D350"
 
 # --- GID DE TU PESTAÑA HISTORIAL ---
 GID_HISTORIAL = 39842440 
@@ -42,7 +42,7 @@ def limpiar_numero(valor):
 @st.cache_data(ttl=60)
 def cargar_datos_desde_sheets():
     try:
-        # Forzamos header=None para que no use la fila 192 como nombres de columna
+        # Forzamos header=None porque leemos desde la fila 1 y no queremos usar textos de arriba como títulos
         df = pd.read_csv(CSV_URL, header=None, names=["TICKER", "VALOR_USD", "NOMINALES"], engine='python')
         
         portfolio = {
@@ -56,20 +56,21 @@ def cargar_datos_desde_sheets():
             valor_raw = row["VALOR_USD"]
             nominales_raw = row["NOMINALES"]
             
-            # Si la celda está vacía, la salteamos pero seguimos buscando abajo
+            # Si la celda está vacía o no es texto válido, saltamos de fila
             if pd.isna(ticker_raw):
                 continue
                 
             ticker = str(ticker_raw).strip().upper()
             
-            # 🛑 Freno dinámico al llegar al final de tus activos
-            if "TOTAL GENERAL" in ticker or "TOTAL APORTADO" in ticker or ticker == "":
+            # 🛑 FRENO DINÁMICO: Al llegar al "TOTAL GENERAL" dejamos de leer filas hacia abajo
+            if "TOTAL GENERAL" in ticker or "TOTAL APORTADO" in ticker:
                 break
                 
             valor_posicion_usd = limpiar_numero(valor_raw)
             nominales = limpiar_numero(nominales_raw)
             
-            # Si tiene texto pero no valores válidos (ej. títulos de columnas intermedios)
+            # 🧠 FILTRO INTELIGENTE: Si tiene texto (ej: "Ticker", "Cant") pero los números dan 0,
+            # significa que es un título de arriba o una fila vacía de la planilla. La ignoramos.
             if valor_posicion_usd <= 0 or nominales <= 0:
                 continue
 
@@ -112,9 +113,11 @@ def cargar_historial():
         
         df_hist = df_hist[[col_fecha, col_total]].dropna()
         df_hist[col_total] = df_hist[col_total].apply(limpiar_numero)
-        df_hist[col_fecha] = pd.to_datetime(df_hist[col_fecha], errors='coerce')
-        df_hist = df_hist.dropna().sort_values(by=col_fecha)
         
+        # 📅 INDICA DÍA PRIMERO (dd/mm/yyyy) para que lea bien el historial guardado por la macro
+        df_hist[col_fecha] = pd.to_datetime(df_hist[col_fecha], dayfirst=True, errors='coerce')
+        
+        df_hist = df_hist.dropna().sort_values(by=col_fecha)
         return df_hist, col_fecha, col_total
     except Exception as e:
         return None, None, None
@@ -213,6 +216,7 @@ if portfolio:
                     hovermode="x unified",
                     template="plotly_dark"
                 )
+                fig_evolucion.update_xaxes(tickformat="%d/%m/%Y")
                 st.plotly_chart(fig_evolucion, use_container_width=True)
             else:
                 st.markdown("---")
