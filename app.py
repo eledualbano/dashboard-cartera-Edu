@@ -7,10 +7,11 @@ st.set_page_config(page_title="Dashboard de Inversiones", layout="wide")
 # --- CONFIGURACIÓN DE TU PLANILLA REAL (TOTALMENTE DINÁMICA) ---
 SPREADSHEET_ID = "1-7fKak1B_R0_Udm83xrIwUzrwNPrQgHqcMflJlIhQA0"
 GID_PRINCIPAL = "1816748277"  # Pestaña "2026"
-# Leemos un rango amplio para que la planilla crezca libremente hacia abajo
+
+# Leemos un rango amplio. Al no fijar el final, tu planilla puede crecer libremente.
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B192:D350"
 
-# --- GID DE TU PESTAÑA HISTORIAL ENLAZADO CORRECTAMENTE ---
+# --- GID DE TU PESTAÑA HISTORIAL ---
 GID_HISTORIAL = 39842440 
 CSV_HISTORIAL_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
@@ -41,6 +42,7 @@ def limpiar_numero(valor):
 @st.cache_data(ttl=60)
 def cargar_datos_desde_sheets():
     try:
+        # Forzamos header=None para que no use la fila 192 como nombres de columna
         df = pd.read_csv(CSV_URL, header=None, names=["TICKER", "VALOR_USD", "NOMINALES"], engine='python')
         
         portfolio = {
@@ -54,17 +56,21 @@ def cargar_datos_desde_sheets():
             valor_raw = row["VALOR_USD"]
             nominales_raw = row["NOMINALES"]
             
+            # Si la celda está vacía, la salteamos pero seguimos buscando abajo
             if pd.isna(ticker_raw):
                 continue
                 
             ticker = str(ticker_raw).strip().upper()
             
-            # 🛑 Freno dinámico al llegar a la etiqueta de cierre de tu tabla
-            if "TOTAL GENERAL" in ticker or any(x in ticker for x in ["TOTAL", "APORTADO", "GENERAL", "ACTUAL", "TICKER", "TOTALES"]) or ticker == "":
+            # 🛑 Freno dinámico al llegar al final de tus activos
+            if "TOTAL GENERAL" in ticker or "TOTAL APORTADO" in ticker or ticker == "":
                 break
                 
             valor_posicion_usd = limpiar_numero(valor_raw)
-            if valor_posicion_usd <= 0:
+            nominales = limpiar_numero(nominales_raw)
+            
+            # Si tiene texto pero no valores válidos (ej. títulos de columnas intermedios)
+            if valor_posicion_usd <= 0 or nominales <= 0:
                 continue
 
             if ticker in ON_TICKERS:
@@ -74,8 +80,7 @@ def cargar_datos_desde_sheets():
             else:
                 tipo = "Merval"
 
-            nominales = limpiar_numero(nominales_raw)
-            precio_ref = valor_posicion_usd / nominales if nominales > 0 else 0.0
+            precio_ref = valor_posicion_usd / nominales
 
             portfolio["activos"][ticker] = {
                 "precio_unitario": round(precio_ref, 2),
@@ -97,6 +102,9 @@ def cargar_datos_desde_sheets():
 def cargar_historial():
     try:
         df_hist = pd.read_csv(CSV_HISTORIAL_URL, engine='python')
+        if df_hist.empty:
+            return None, None, None
+            
         df_hist.columns = [c.strip().upper() for c in df_hist.columns]
         
         col_fecha = [c for c in df_hist.columns if "FECHA" in c][0]
@@ -153,7 +161,7 @@ if portfolio:
     # ==================== PESTAÑA 1: RESUMEN GENERAL ====================
     with tab_gral:
         if not portfolio["activos"]:
-            st.info("Aún no tienes activos registrados en el rango de la planilla.")
+            st.info("Aún no tienes activos registrados en el rango mapeado de la planilla.")
         else:
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -208,7 +216,7 @@ if portfolio:
                 st.plotly_chart(fig_evolucion, use_container_width=True)
             else:
                 st.markdown("---")
-                st.info("📈 Cuando la pestaña de Historial empiece a acumular registros diarios (corriendo las macros o agregando filas manuales con fecha y total), acá verás el gráfico de evolución.")
+                st.info("📈 Cuando la pestaña de Historial empiece a acumular registros diarios running la macro, acá se dibujará tu gráfico de evolución.")
 
             st.markdown("---")
             st.subheader("📌 Desglose Detallado por Activo")
