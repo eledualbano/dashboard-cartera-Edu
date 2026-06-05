@@ -8,43 +8,46 @@ st.set_page_config(page_title="Dashboard de Inversiones", layout="wide")
 SPREADSHEET_ID = "1-7fKak1B_R0_Udm83xrIwUzrwNPrQgHqcMflJlIhQA0"
 GID_PRINCIPAL = "1816748277"  # Pestaña "2026"
 
-# Leemos las columnas B, C y D directamente
-CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B1:D350"
+# 🎯 Filtramos estrictamente el rango de la tabla final que me indicaste
+CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_PRINCIPAL}&range=B193:D214"
 
 # --- CONFIGURACIÓN DE TU PESTAÑA HISTORIAL ---
 GID_HISTORIAL = 39842440 
 CSV_HISTORIAL_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
-# Tus listas oficiales de activos para ignorar subtotales y títulos intermedios
+# Tickers oficiales para la separación de pestañas
 ON_TICKERS = ["YM34D", "RUCDD", "DNC5D", "DNC7D", "TLCPD", "IRCPD", "TLCTD", "MR39D", "RUCAD"]
 CEDEAR_TICKERS = [
     "MELI", "B", "PBR", "JNJ", "WMT", "PAMP", "PFE", "SPY ETF", 
     "BRKB", "META", "GOOGL", "MSFT", "NU", "NVDA", "VIST", "GOLD"
 ]
 
-def limpiar_numero(valor):
+def limpiar_monto_puro(valor):
     if pd.isna(valor):
         return 0.0
-    val_str = str(valor).strip().replace("$", "").replace(" ", "").replace("U$S", "")
+    val_str = str(valor).strip().replace("$", "").replace("U$S", "").replace(" ", "")
     if val_str == "-" or not val_str or val_str.lower() == "nan":
         return 0.0
     try:
-        # Manejo de separadores de miles y decimales
         if "," in val_str and "." in val_str:
-            if val_str.find(".") < val_str.find(","):
+            if val_str.find(",") < val_str.find("."):
+                val_str = val_str.replace(",", "")
+            else:
                 val_str = val_str.replace(".", "").replace(",", ".")
+        elif "," in val_str:
+            partes = val_str.split(",")
+            if len(partes) == 2 and len(partes[1]) == 2:
+                val_str = val_str.replace(",", ".")
             else:
                 val_str = val_str.replace(",", "")
-        elif "," in val_str:
-            val_str = val_str.replace(",", ".")
         return float(val_str)
     except ValueError:
         return 0.0
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def cargar_datos_desde_sheets():
     try:
-        # B = TICKER, C = VALOR EN U$S TOTAL, D = NOMINALES
+        # Cargamos asignando los nombres exactos a las 3 columnas del rango
         df = pd.read_csv(CSV_URL, header=None, names=["TICKER", "VALOR_TOTAL_USD", "NOMINALES"], engine='python')
         
         portfolio = {
@@ -55,52 +58,42 @@ def cargar_datos_desde_sheets():
 
         for _, row in df.iterrows():
             ticker_raw = row["TICKER"]
-            valor_raw = row["VALOR_TOTAL_USD"]
-            nominales_raw = row["NOMINALES"]
-            
             if pd.isna(ticker_raw):
                 continue
                 
             ticker = str(ticker_raw).strip().upper()
             
-            # Si llegamos al final real de tu tabla, frena la lectura
-            if ticker == "TOTAL GENERAL":
-                break
-
-            # Filtro estricto: Solo procesa si está en tus listas de activos actuales
             es_on = ticker in ON_TICKERS
             es_cedear = ticker in CEDEAR_TICKERS
-            
             if not (es_on or es_cedear):
                 continue
 
-            valor_posicion_usd = limpiar_numero(valor_raw)
-            nominales = limpiar_numero(nominales_raw)
+            # Lectura directa de los valores declarados de tus celdas C y D
+            valor_final_usd = limpiar_monto_puro(row["VALOR_TOTAL_USD"])
+            nominales = limpiar_monto_puro(row["NOMINALES"])
             
-            if valor_posicion_usd <= 0:
+            if valor_final_usd <= 0:
                 continue
 
             tipo = "Obligaciones Negociables" if es_on else "CEDEARs"
-            
-            # Calculamos la cotización individual aproximada (Total / Cantidad)
-            precio_unitario = (valor_posicion_usd / nominales) if nominales > 0 else 0.0
+            precio_unitario = (valor_final_usd / nominales) if nominales > 0 else 0.0
 
             portfolio["activos"][ticker] = {
                 "precio_unitario": round(precio_unitario, 2),
-                "total_posicion_usd": round(valor_posicion_usd, 2)
+                "total_posicion_usd": round(valor_final_usd, 2)
             }
-            portfolio["instrumentos"][tipo] += valor_posicion_usd
-            portfolio["total_usd"] += valor_posicion_usd
+            portfolio["instrumentos"][tipo] += valor_final_usd
+            portfolio["total_usd"] += valor_final_usd
 
         portfolio["total_usd"] = round(portfolio["total_usd"], 2)
         for inst in portfolio["instrumentos"]:
             portfolio["instrumentos"][inst] = round(portfolio["instrumentos"][inst], 2)
             
         return portfolio
-  except Exception as e:
+    except Exception as e:
         return None
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def cargar_historial():
     try:
         df_hist = pd.read_csv(CSV_HISTORIAL_URL, engine='python')
@@ -112,7 +105,7 @@ def cargar_historial():
         col_total = [c for c in df_hist.columns if "TOTAL" in c][0]
         
         df_hist = df_hist[[col_fecha, col_total]].dropna()
-        df_hist[col_total] = df_hist[col_total].apply(limpiar_numero)
+        df_hist[col_total] = df_hist[col_total].apply(limpiar_monto_puro)
         df_hist[col_fecha] = pd.to_datetime(df_hist[col_fecha], dayfirst=True, errors='coerce')
         df_hist = df_hist.dropna().sort_values(by=col_fecha)
         return df_hist, col_fecha, col_total
@@ -124,7 +117,8 @@ portfolio = cargar_datos_desde_sheets()
 df_historial, col_f, col_t = cargar_historial()
 
 st.title("💼 Mi Cartera de Inversiones Automatizada")
-st.caption("Datos sincronizados desde tu Google Sheets")
+# Corrección de sintaxis limpia para evitar incompatibilidades de versión
+st.markdown("_Sincronización exacta apuntando al rango de control B193:D214_")
 st.markdown("---")
 
 if portfolio and portfolio["activos"]:
@@ -151,14 +145,13 @@ if portfolio and portfolio["activos"]:
         with col2:
             top_asset = max(portfolio["activos"], key=lambda k: portfolio["activos"][k]["total_posicion_usd"])
             st.metric(label="Activo de Mayor Peso", value=f"{top_asset}", delta=f"USD {portfolio['activos'][top_asset]['total_posicion_usd']:,.2f}")
-        with col3: st.metric(label="Cantidad de Activos", value=len(portfolio["activos"]))
+        with col3: st.metric(label="Cantidad de Activos en Cartera", value=len(portfolio["activos"]))
 
         st.markdown("---")
         col_graf1, col_graf2 = st.columns(2)
         with col_graf1:
             st.subheader("Composición por Instrumento")
             df_inst = pd.DataFrame(list(portfolio["instrumentos"].items()), columns=["Instrumento", "Valor USD"])
-            df_inst = df_inst[df_inst["Valor USD"] > 0]
             fig_pie = px.pie(df_inst, values="Valor USD", names="Instrumento", color_discrete_sequence=["#3b82f6", "#ef4444"], hole=0.4)
             st.plotly_chart(fig_pie, use_container_width=True)
         with col_graf2:
@@ -170,9 +163,8 @@ if portfolio and portfolio["activos"]:
 
         if df_historial is not None and not df_historial.empty:
             st.markdown("---")
-            st.subheader("📈 Evolución Histórica de la Cartera")
+            st.subheader("📈 Evolución Histórica")
             fig_evolucion = px.line(df_historial, x=col_f, y=col_t, markers=True, color_discrete_sequence=["#10b981"])
-            fig_evolucion.update_layout(xaxis_title="Fecha", yaxis_title="Monto Cartera (USD)", template="plotly_dark")
             st.plotly_chart(fig_evolucion, use_container_width=True)
 
         st.markdown("---")
@@ -181,7 +173,7 @@ if portfolio and portfolio["activos"]:
         cols_activos = st.columns(3)
         for i, activo in enumerate(activos_ordenados):
             with cols_activos[i % 3]:
-                st.metric(label=f"{activo['Ticker']} (Cotización aprox: USD {activo['Precio Ref']:,.2f}) — {activo['% del Total']}%", value=f"USD {activo['Valor USD']:,.2f}")
+                st.metric(label=f"{activo['Ticker']} ({activo['% del Total']}% del total)", value=f"USD {activo['Valor USD']:,.2f}")
 
     with tab_ons:
         if datos_ons:
@@ -205,4 +197,4 @@ if portfolio and portfolio["activos"]:
                 st.dataframe(df_cedears[["Ticker", "Valor USD", "% del Total", "% de la Subcartera"]].sort_values(by="Valor USD", ascending=False), hide_index=True, use_container_width=True)
             with c2: st.plotly_chart(px.pie(df_cedears, values="Valor USD", names="Ticker", hole=0.3), use_container_width=True)
 else:
-    st.warning("Conexión establecida. Asegúrate de tener activos cargados cuyos Tickers coincidan con las listas de control del script.")
+    st.warning("Verificando consistencia de datos en el rango seleccionado...")
