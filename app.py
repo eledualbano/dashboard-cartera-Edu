@@ -83,5 +83,3 @@ st.subheader("Detalle de Activos")
 df_display = df.copy()
 df_display["Valor"] = df_display["Valor"].apply(lambda x: f"{x:,.2f}")
 st.table(df_display)
-else:
-    st.warning("Verificando consistencia de datos en el rango seleccionado...")
