@@ -14,8 +14,8 @@ CSV_URL_ACTIVOS = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/expo
 CSV_URL_HISTORIAL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
 # Rangos de datos
-FILA_INICIAL = 195 
-FILA_FINAL = 216
+FILA_INICIAL = 193 
+FILA_FINAL = 215
 RANGO_ON = range(236, 243)      # Filas 237 a 243 (ajustar si es necesario)
 RANGO_CEDEAR = range(245, 259)  # Filas 246 a 259 (ajustar si es necesario)
 
