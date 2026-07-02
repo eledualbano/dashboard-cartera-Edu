@@ -87,9 +87,29 @@ with c2:
         st.plotly_chart(px.pie(df_torta, values="Valor", names="Instrumento", hole=0.3), use_container_width=True)
 
 st.subheader("📈 Evolución Histórica (Diaria)")
+
 df_hist = cargar_historial()
+
 if not df_hist.empty:
-    st.line_chart(df_hist.set_index("FECHA_STR")[["TOTAL"]])
+
+    df_hist = df_hist.sort_values("FECHA_DT")
+
+    fig = px.line(
+        df_hist,
+        x="FECHA_DT",
+        y="TOTAL",
+        markers=True
+    )
+
+    fig.update_traces(line_width=3)
+
+    fig.update_layout(
+        xaxis_title="Fecha",
+        yaxis_title="USD",
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Detalle de Activos")
 st.table(df.assign(Valor=df["Valor"].apply(lambda x: f"{x:,.2f}")))
