@@ -21,7 +21,10 @@ RANGO_CEDEAR = range(256, 270)  # Filas 257 a 271 (ajustar si es necesario)
 
 def limpiar_num(valor):
     try:
-        return float(str(valor).replace("$", "").replace(",", "").strip())
+        s = str(valor).replace("$", "").strip()
+        s = s.replace(".", "")   # saco separador de miles
+        s = s.replace(",", ".")  # coma decimal -> punto decimal
+        return float(s)
     except:
         return 0.0
 
