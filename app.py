@@ -14,10 +14,10 @@ CSV_URL_ACTIVOS = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/expo
 CSV_URL_HISTORIAL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
 # Rangos de datos
-FILA_INICIAL = 202   # fila 202 de Sheets (YM34D)
-FILA_FINAL   = 223   # fila 223 de Sheets (TLCTD)
-RANGO_ON = range(247, 253)      # Filas 248 a 254 (ajustar si es necesario)
-RANGO_CEDEAR = range(256, 270)  # Filas 257 a 271 (ajustar si es necesario)
+FILA_INICIAL = 205   # fila 205 de Sheets (YM34D)
+FILA_FINAL   = 227   # fila 227 de Sheets (TLCTD)
+RANGO_ON = range(250, 256)      # Filas 249 a 255 (ajustar si es necesario)
+RANGO_CEDEAR = range(259, 273)  # Filas 258 a 272 (ajustar si es necesario)
 
 def limpiar_num(valor):
     try:
