@@ -14,7 +14,7 @@ CSV_URL_ACTIVOS = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/expo
 CSV_URL_HISTORIAL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={GID_HISTORIAL}"
 
 # Rangos de datos
-FILA_INICIAL = 212   # fila 212 de Sheets (YM34D)
+FILA_INICIAL = 211   # fila 211 de Sheets (YM34D)
 FILA_FINAL   = 234   # fila 234 de Sheets (DNCAD)
 RANGO_ON = range(245, 252)      # Filas 250 a 257 (ajustar si es necesario)
 RANGO_CEDEAR = range(255, 269)  # Filas 258 a 272 (ajustar si es necesario)
